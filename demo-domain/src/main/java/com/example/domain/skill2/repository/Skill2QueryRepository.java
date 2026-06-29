@@ -1,5 +1,7 @@
 package com.example.domain.skill2.repository;
 
+import com.example.domain.skill2.model.Skill2Filter;
+
 import java.util.List;
 
 /**
@@ -15,5 +17,8 @@ public interface Skill2QueryRepository {
 
     List<Skill2Projection> findAllSummary();
 
-    List<Skill2Projection> search(String keyword, String category);
+    /** 多条件动态筛选，参数包装为领域对象 Skill2Filter */
+    List<Skill2Projection> searchByFilter(Skill2Filter filter, int offset, int limit);
+
+    long countByFilter(Skill2Filter filter);
 }

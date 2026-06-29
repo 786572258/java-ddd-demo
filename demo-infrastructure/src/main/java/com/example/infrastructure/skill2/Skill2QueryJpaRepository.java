@@ -1,11 +1,14 @@
 package com.example.infrastructure.skill2;
 
+import com.example.domain.skill2.model.Skill2Filter;
 import com.example.domain.skill2.repository.Skill2Projection;
 import com.example.domain.skill2.repository.Skill2QueryRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.TypedQuery;
 import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,24 +43,65 @@ public class Skill2QueryJpaRepository implements Skill2QueryRepository {
     }
 
     @Override
-    public List<Skill2Projection> search(String keyword, String category) {
-        return cast(em.createQuery("""
+    public List<Skill2Projection> searchByFilter(Skill2Filter filter, int offset, int limit) {
+        var pair = buildWhere(filter);
+        TypedQuery<Skill2ProjectionImpl> query = em.createQuery("""
                 SELECT new com.example.infrastructure.skill2.Skill2ProjectionImpl(s.id, s.name, s.category, s.status)
                 FROM Skill2Entity s
-                WHERE s.category = :cat AND (s.name LIKE :kw OR s.description LIKE :kw)
-                ORDER BY s.id DESC
-                """, Skill2ProjectionImpl.class)
-                .setParameter("cat", category)
-                .setParameter("kw", "%" + keyword + "%")
-                .getResultList());
+                """ + pair.whereClause + " ORDER BY s.id DESC", Skill2ProjectionImpl.class);
+        for (int i = 0; i < pair.params.size(); i++) {
+            query.setParameter("p" + i, pair.params.get(i));
+        }
+        query.setFirstResult(offset);
+        query.setMaxResults(limit);
+        return cast(query.getResultList());
+    }
+
+    @Override
+    public long countByFilter(Skill2Filter filter) {
+        var pair = buildWhere(filter);
+        TypedQuery<Long> query = em.createQuery(
+                "SELECT COUNT(s) FROM Skill2Entity s" + pair.whereClause, Long.class);
+        for (int i = 0; i < pair.params.size(); i++) {
+            query.setParameter("p" + i, pair.params.get(i));
+        }
+        return query.getSingleResult();
     }
 
     /**
-     * 绕过泛型检查。
-     * JPA 构造器表达式返回的是具体实现类 Skill2ProjectionImpl，
-     * 但泛型声明为 List&lt;Skill2Projection&gt;，编译期不兼容。
-     * 实际运行时 List&lt;Skill2ProjectionImpl&gt; 和 List&lt;Skill2Projection&gt; 完全一样。
+     * 从领域过滤条件动态组装 WHERE 子句。
+     * 每个条件只在有值时拼接，避免空条件污染 SQL。
+     *
+     * <p>这块逻辑放在 infra 层，领域层只传递 Skill2Filter，
+     * 不知道 SQL 长什么样。
      */
+    private WherePair buildWhere(Skill2Filter f) {
+        List<String> clauses = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
+
+        if (f.keyword() != null && !f.keyword().isBlank()) {
+            clauses.add("(s.name LIKE :p" + params.size() + " OR s.description LIKE :p" + params.size() + ")");
+            params.add("%" + f.keyword() + "%");
+        }
+        if (f.category() != null && !f.category().isBlank()) {
+            clauses.add("s.category = :p" + params.size());
+            params.add(f.category());
+        }
+        if (f.level() != null && !f.level().isBlank()) {
+            clauses.add("s.level = :p" + params.size());
+            params.add(f.level());
+        }
+        if (f.status() != null && !f.status().isBlank()) {
+            clauses.add("s.status = :p" + params.size());
+            params.add(f.status());
+        }
+
+        String whereClause = clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses);
+        return new WherePair(whereClause, params);
+    }
+
+    private record WherePair(String whereClause, List<Object> params) {}
+
     @SuppressWarnings("unchecked")
     private static <T> List<T> cast(List<?> list) {
         return (List<T>) list;
